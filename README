@@ -1,0 +1,7 @@
+cdrip
+=====
+
+cdrip is a simple cd audio ripping script, which outputs
+high quality MP3s, Ogg Vorbis and FLACs.
+
+replaygain is properly applied in album mode by default.
