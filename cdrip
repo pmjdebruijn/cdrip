@@ -1,0 +1,71 @@
+#!/bin/bash
+#
+# Copyright (c) 2014 Pascal de Bruijn <pmjdebruijn@pcode.nl>
+#
+
+PARANOIA_CD_SPEED="-S 8"
+
+MP3=1
+MP3_QUALITY_OPTS="-V 0"
+MP3_EXTRA_OPTS="--noreplaygain --add-id3v2 --id3v2-only --id3v2-latin1"
+
+OGG=1
+OGG_QUALITY_OPTS="-q 7"
+OGG_EXTRA_OPTS=""
+
+FLAC=1
+FLAC_QUALITY_OPTS="--best"
+FLAC_EXTRA_OPTS=""
+
+read -p "Album Artist: " ALBUM_ARTIST
+read -p "Album Title:  " ALBUM_TITLE
+read -p "Album Year:   " ALBUM_YEAR
+read -p "Album Genre:  " ALBUM_GENRE
+read -p "Multi Artist: " MULTI_ARTIST
+read -p "Replay Gain:  " REPLAY_GAIN
+
+ALBUM_DIR="$ALBUM_ARTIST - $ALBUM_TITLE"
+
+mkdir -p tmp
+(cd tmp; cdparanoia $PARANOIA_CD_SPEED -B)
+
+# track 00 is usually the data track, let's not include that
+TOTAL_TRACKS=$(ls -1 tmp/*.wav | grep -v '00' | wc -l)
+
+TEMP_FILE=$(tempfile -d . -p 'rip' -s '.txt')
+
+function exit_trap { rm ${TEMP_FILE} 2>/dev/null; }
+trap exit_trap EXIT
+
+for F in tmp/*.wav; do
+  echo "$F;$(echo $F | tr -cd '[0-9]');$TOTAL_TRACKS;;$ALBUM_ARTIST;$ALBUM_TITLE;$ALBUM_GENRE;$ALBUM_YEAR" >> $TEMP_FILE
+done
+
+nano -w $TEMP_FILE
+
+cat $TEMP_FILE | grep -v '^#' | while read LINE; do
+  TRACK_SOURCE="$(echo $LINE | awk -F ';' '{print $1}')"
+  TRACK_NUMBER="$(echo $LINE | awk -F ';' '{print $2}')"
+  TRACK_TOTAL="$(echo $LINE | awk -F ';' '{print $3}')"
+
+  TRACK_TITLE="$(echo $LINE | awk -F ';' '{print $4}')"
+  TRACK_ARTIST="$(echo $LINE | awk -F ';' '{print $5}')"
+  TRACK_ALBUM="$(echo $LINE | awk -F ';' '{print $6}')"
+  TRACK_GENRE="$(echo $LINE | awk -F ';' '{print $7}')"
+  TRACK_YEAR="$(echo $LINE | awk -F ';' '{print $8}')"
+  TRACK_DEST="$TRACK_NUMBER. $TRACK_ARTIST - $TRACK_TITLE"
+
+  if [[ -n "$MULTI_ARTIST" ]]; then
+    ALBUM_DIR="$TRACK_ARTIST - $TRACK_ALBUM"
+  fi
+
+  [[ -n "$MP3"  ]] && mkdir -p "mp3/$ALBUM_DIR" && lame $MP3_QUALITY_OPTS $MP3_EXTRA_OPTS --tt "$TRACK_TITLE" --ta "$TRACK_ARTIST" --tl "$TRACK_ALBUM" --ty "$TRACK_YEAR" --tn "$TRACK_NUMBER"/"$TRACK_TOTAL" --tg "$TRACK_GENRE" "$TRACK_SOURCE" "mp3/$ALBUM_DIR/$TRACK_DEST.mp3"
+  [[ -n "$OGG"  ]] && mkdir -p "ogg/$ALBUM_DIR" && oggenc $OGG_QUALITY_OPTS $OGG_EXTRA_OPTS --title "$TRACK_TITLE" --artist "$TRACK_ARTIST" --album "$TRACK_ALBUM" --date "$TRACK_YEAR" --tracknum "$TRACK_NUMBER" --genre "$TRACK_GENRE" "$TRACK_SOURCE" --o "ogg/$ALBUM_DIR/$TRACK_DEST.ogg"
+  [[ -n "$FLAC" ]] && mkdir -p "flac/$ALBUM_DIR" && flac $FLAC_QUALITY_OPTS $FLAC_EXTRA_OPTS --tag "TITLE=$TRACK_TITLE" --tag "ARTIST=$TRACK_ARTIST" --tag "ALBUM=$TRACK_ALBUM" --tag "DATE=$TRACK_YEAR" --tag "TRACKNUMBER=$TRACK_NUMBER" --tag "GENRE=$TRACK_GENRE" "$TRACK_SOURCE" -o "flac/$ALBUM_DIR/$TRACK_DEST.flac"
+
+  mkdir -p "wav/$ALBUM_DIR" && mv "$TRACK_SOURCE" "wav/$ALBUM_DIR/$TRACK_DEST.wav"
+done
+
+[[ -z $REPLAY_GAIN && -n $MP3 ]] && mp3gain -s i mp3/"$ALBUM_DIR"/*.mp3
+[[ -z $REPLAY_GAIN && -n $OGG ]] && vorbisgain -a ogg/"$ALBUM_DIR"/*.ogg
+[[ -z $REPLAY_GAIN && -n $FLAC ]] && metaflac --add-replay-gain flac/"$ALBUM_DIR"/*.flac
